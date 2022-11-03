@@ -1,0 +1,205 @@
+---
+title: "AFCARS Data Visualization Practice"
+author: "Holly White-Wolfe"
+date: '2022-11-03'
+output: html_document
+---
+
+R with Friends members asked for tips on how to get started with a project in R. Here follows a document in R Markdown with several sections that provides step by step advice for opening a file, importing data, preparing data for use in visualizations and then some simple visuals.
+
+# Working Directories
+
+Organizing files for a project is a task that takes some advanced planning. A place to start with this is to establish a "working directory" or file location where you'll place your source data and output. 
+
+When working in a notebook, we need to establish this path in the knitr::opts rather than using setwd("C:/Users/shwol/Dropbox (ASU)/Structural Factors/ACE Repro/PACE/R_Files") 
+
+```{r setup}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = normalizePath("C:/Users/shwol/Dropbox (ASU)/Structural Factors/ACE Repro/PACE/R_Files"))
+```
+
+# Selecting Packages
+
+What packages are handy to load with most R projects? Data.table helps us read in large datasets quickly. Tidyverse is useful for wrangling data. Ggplot is a package that helps us create data visualizations.   
+
+```{r packages}
+library(data.table)#read in tables
+library(tidyverse)#organizing functions like select and group
+library(ggplot2)#customizable data visualizations
+
+```
+
+# Import in AFCARS data
+
+AFCARS data files are typically quite large as each year has at least 600K observations. Many projects require merging several years together, making the combined dataset of interest very large. 
+
+While the data.table package will quickly read in the data, working with a large data table can be hard for the average computer. It may proces tasks slowly or crash. Therefore, it can be helpful to import in one year's worth of data, train your code on that data, and then apply the code to a combined dataset when the code is perfected.
+
+Here we'll read in two years worth of data so we can practice visualizng multiple years at once. We use the fread function from data.table.
+
+We also rename all of the column names (or variable names) to lower case so that our coding is simplified. 
+
+```{r import}
+
+FC2014v7 <-fread("data/FC2014v7.csv") %>%
+  rename_all(tolower) 
+FC2016v3 <-fread("data/FC2016v3.csv") %>%
+  rename_all(tolower) 
+
+```
+
+## Select Variables
+
+After we import the datasets, we will want to use the select function to narrow down the number of columns to those we anticipate working with. We do this for each data table separately. We'll want to select variables that are present in all years of AFCARS data. 
+
+We'll also want to ensure these variables are formatted in the same way (e.g. they have the same name and they are the same type such as a number or a factor). We can do this through the arsenal package. The output of the comparedf function shows us that there were no differences found in 9/9 variables compared, and 0 variables compared have non-identical attributes.
+
+```{r select}
+
+FC2014v7 <- FC2014v7 %>% 
+  select(fipscode, state, st, fy, neglect, raceethn, entered, recnumbr, ru13) 
+
+FC2016v3 <- FC2016v3 %>% 
+  select(fipscode, state, st, fy, neglect, raceethn, entered, recnumbr, ru13)
+```
+```{r compare}
+library(arsenal)
+
+comparedf(FC2014v7,FC2016v3)
+
+```
+
+# Combine Multiple Years of Data
+
+There are many ways to merge data tables. Here we use the bind_rows function.
+
+We could also have used rbind (a base r function), after we confirmed all of the variables were listed in the same order in both tables.
+
+We also could have used the left_join and other functions used for merging data because we know from using comparedf that both tables have the same variables. 
+
+```{r bind}
+AFCARS_14_16 <- bind_rows(FC2014v7,FC2016v3)
+```
+
+# Research Question
+
+Now that the data is in our preferred environment, let's establish a practice research question. For example, let's look at the State of Georgia and how foster care entry rates have changed between 2014-2106. We'll want to see how this changes for the state population as a whole. However, due to persistent disparities and disproportionality in foster care outcomes, we'll also want to break foster care entry out by racial groups. Further, we want to look to see how policy changes or legal actions like consent decrees might coincide with changes in foster care entry rates.
+
+We'll investigate this question by creating some specific tables and visualizations.
+
+## Are Georgia's foster care entry rates increasing?
+
+### Summarizing by state, filtering GA foster care entries only
+
+To begin, we'll need to make a data table that filters on Georgia and those entering foster care. 
+
+```{r state general pop}
+
+#create a subset of our larger data table
+AFCARS_14_16_ga <- AFCARS_14_16 %>% 
+  filter(entered == 1, st == "GA") %>% 
+  dplyr::group_by(fy) %>% 
+  dplyr::summarize(n = n()) 
+
+#review summary statistics
+summary(AFCARS_14_16_ga)
+
+```
+
+### Visualization of State Trends
+
+Here we look at just two years, noting that 2016 foster care entry rates in GA were higher than 2014.
+
+```{r state gen viz}
+
+ggplot(AFCARS_14_16_ga, aes(x = fy, y = n))+
+  geom_bar(stat= "identity")
+
+```
+
+## Are Georgia's foster care entry rates increasing across all racial groups?
+
+### Summarizing by state and race ethnicity, filtering GA foster care entries
+
+We need a new data table that summarizes each racial/ethnic group. When we pulled in our data using fread, it does not bring in any factor labels. Therefore, we need to take the numerically coded racial group levels and rename them. This is easy to do with the mutate and case_when functions.
+
+```{r state race ethn}
+#create table
+AFCARS_14_16_ga_race <- AFCARS_14_16 %>% 
+  filter(entered == 1, st == "GA") %>% 
+  dplyr::group_by(fy, raceethn) %>% 
+  dplyr::summarize(n = n()) %>% # counts or use count()
+  mutate(raceethn2 = case_when(raceethn == 1 ~ "White",
+                               raceethn == 2 ~ "Black",
+                               raceethn == 3 ~ "American Indian or Native Alaskan",
+                               raceethn == 4 ~ "Asian",
+                               raceethn == 5 ~ "Native Hawaiian or Other Pacific Islander",
+                               raceethn == 6 ~ "More Than One",
+                               raceethn == 7 ~ "Hispanic or Latino",
+                               raceethn == 99 ~ "NA")) 
+
+#review summary stats
+summary(AFCARS_14_16_ga_race)
+  
+```
+
+### Visualization of State Trends by Race 
+
+Here we create a bar chart of each racial group's foster care entry rate for each year. Showing multiple group values for each year required using the geom_bar option position = "dodge". Without this option, the bars were shown as a vertical stack divided by a color for each racial group. 
+
+
+This chart could be improved with labels, removing the legend title, removing years on the x axis, and other enhancements using ggplot coding.
+
+```{r state race viz}
+
+ggplot(AFCARS_14_16_ga_race %>% 
+       filter(raceethn2 != "NA"), 
+       aes(x = fy, y = n, fill = raceethn2))+
+  geom_bar(stat= "identity", position = "dodge")
+
+```
+
+## Are Georgia's foster care entry rates increasing in particular counties?
+
+### Summarizing by county, filtering GA foster care entries
+
+Here we summarize entry rates by county. This data table includes county fipscodes, but not county names. We'll need to recode county names here. Since there are only 2, this can be hardcoded. However, a table with the full county names would be useful for more comprehensive data sets.
+
+```{r state counties}
+
+#create table
+AFCARS_14_16_ga_co <- AFCARS_14_16 %>% 
+  filter(entered == 1, st == "GA") %>% 
+  dplyr::group_by(fy, fipscode) %>% 
+  dplyr::summarize(n = n()) %>% 
+  mutate(fipscode2 = case_when(fipscode == 8 ~ "Unknown",
+                               fipscode == 13089 ~ "DeKalb",
+                               fipscode == 13121 ~ "Fulton"))
+
+#summarize data
+summary(AFCARS_14_16_ga_co)
+```
+
+### Visualization of State Trends by County 
+
+Here we create a bar chart of each county's foster care entry rate for each year. 
+
+Note there was no data for Fulton in 2016. It was grouped into the unknown category as it's total foster care population fell below 1000.
+
+```{r state county viz}
+
+ggplot(AFCARS_14_16_ga_co,aes(x = fy, y = n, fill = fipscode2))+
+  geom_bar(stat= "identity", position = "dodge")
+
+```
+
+# Other Notes
+
+If we had wanted to add in a line to show when policy changed we could add the line with this code:
+
++ geom_vline(xintercept = 2015)
+  
+We could then add a bit of text to label the line using the annotate function. Here we'd need to determine about what coordinates to use by some trial and error.   
+
++ annotate("text", x=15, y=8000, label="Consent Decree", angle=90)
+
